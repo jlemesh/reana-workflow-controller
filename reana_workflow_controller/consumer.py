@@ -30,6 +30,7 @@ from reana_commons.utils import (
     calculate_job_input_hash,
     build_unique_component_name,
 )
+from reana_commons.redis import redis_cache
 from reana_db.database import Session
 from reana_db.models import JobCache, Workflow, RunStatus
 from sqlalchemy.exc import SQLAlchemyError
@@ -301,15 +302,15 @@ def _get_workflow_engine_pod_logs(workflow: Workflow) -> str:
     # when a workflow fails to be scheduled
     return ""
 
-def _get_workflow_log(workflow):
+@redis_cache.cache(ttl=10)
+def _get_workflow_log(pod_name):
     logs = ""
     try:
-        n = workflow.pod_name
-        if n is not None:
-            logging.info("Log: wf {0} pod name {1}".format(workflow.id_, n))
+        n = pod_name
+        if n is not None and n != "":
             logs = current_k8s_corev1_api_client.read_namespaced_pod_log(
                     namespace="default",
-                    name=workflow.pod_name,
+                    name=pod_name,
                     container="workflow-engine",
             )
     except Exception as e:

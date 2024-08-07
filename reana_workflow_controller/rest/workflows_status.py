@@ -154,7 +154,7 @@ def get_workflow_logs(workflow_id_or_name, paginate=None, **kwargs):  # noqa
         else:
             logs = workflow.logs
             if logs is None or logs == "":
-                logs = _get_workflow_log(workflow)
+                logs = _get_workflow_log(workflow.pod_name)
             workflow_logs = {
                 "workflow_logs": logs,
                 "job_logs": build_workflow_logs(workflow, paginate=paginate),

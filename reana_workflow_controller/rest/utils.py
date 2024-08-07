@@ -41,6 +41,7 @@ from reana_commons.utils import (
     is_directory,
 )
 from reana_commons.k8s.api_client import current_k8s_corev1_api_client
+from reana_commons.redis import redis_cache
 from reana_db.database import Session
 from reana_db.models import (
     Job,
@@ -177,18 +178,8 @@ def build_workflow_logs(workflow, steps=None, paginate=None):
     for job in jobs:
         logs = job.logs
         if logs is None or logs == "":
-            try:
-                n = job.pod_name
-                if n is not None:
-                    logging.info("Log: Job {0} pod name {1}".format(job.id_, n))
-                    logs = current_k8s_corev1_api_client.read_namespaced_pod_log(
-                            namespace="default",
-                            name=job.pod_name,
-                    )
-            except Exception as e:
-                logging.error(f"Error from Kubernetes API while getting {job.pod_name} logs: {e}")
+            logs = _get_job_logs(job.pod_name)
 
-        # put logs to redis if needed
         started_at = (
             job.started_at.strftime(WORKFLOW_TIME_FORMAT) if job.started_at else None
         )
@@ -211,6 +202,18 @@ def build_workflow_logs(workflow, steps=None, paginate=None):
 
     return all_logs
 
+@redis_cache.cache(ttl=10)
+def _get_job_logs(pod_name):
+    try:
+        n = pod_name
+        if n is not None:
+            return current_k8s_corev1_api_client.read_namespaced_pod_log(
+                    namespace="default",
+                    name=pod_name,
+            )
+    except Exception as e:
+        logging.error(f"Error from Kubernetes API while getting job {pod_name} logs: {e}")
+    return ""
 
 def remove_workflow_jobs_from_cache(workflow):
     """Remove any cached jobs from given workflow.
