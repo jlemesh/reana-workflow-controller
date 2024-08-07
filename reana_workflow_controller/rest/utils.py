@@ -50,7 +50,6 @@ from reana_db.models import (
     RunStatus,
     Workflow,
     WorkflowResource,
-    JobLog,
 )
 from reana_db.utils import (
     store_workflow_disk_quota,
@@ -169,42 +168,6 @@ def is_uuid_v4(uuid_or_name: str) -> bool:
 
 def build_workflow_logs(workflow, steps=None, paginate=None):
     """Return the logs for all jobs of a workflow."""
-    # retrieve latest timestamps of the logs
-    query = Session.query(Job).filter_by(workflow_uuid=workflow.id_)
-    if steps:
-        query = query.filter(Job.job_name.in_(steps))
-
-    jobs = query
-    all_logs = OrderedDict()
-    for job in jobs:
-        logs = ""
-        dd = 1000000
-        if len(job.log) != 0:
-            dd = int((datetime.now() - datetime.fromtimestamp(job.log[-1].time.timestamp())).total_seconds())
-        logging.info(dd)
-        try:
-            n = job.pod_name
-            if n is not None:
-                logging.info("Log: Job {0} pod name {1}".format(job.id_, n))
-                logs = current_k8s_corev1_api_client.read_namespaced_pod_log(
-                        namespace="default",
-                        name=job.pod_name,
-                        since_seconds=dd,
-                        timestamps = True
-                )
-        except Exception as e:
-            logging.error(f"Error from Kubernetes API while getting job logs: {e}")
-
-        for l in logs.splitlines():
-            tt = l.split(" ", 1)
-            log = JobLog()
-            log.job_id = job.id_
-            log.time = tt[0]
-            log.log = tt[1]
-            Session.add(log)
-        Session.commit()
-
-    # consinue pretty much as usual
     query = Session.query(Job).filter_by(workflow_uuid=workflow.id_)
     if steps:
         query = query.filter(Job.job_name.in_(steps))
@@ -212,8 +175,20 @@ def build_workflow_logs(workflow, steps=None, paginate=None):
     jobs = paginate(query).get("items") if paginate else query
     all_logs = OrderedDict()
     for job in jobs:
-        ll = [l.log for l in job.log]
-        logstr = "\n".join(ll)
+        logs = job.logs
+        if logs is None or logs == "":
+            try:
+                n = job.pod_name
+                if n is not None:
+                    logging.info("Log: Job {0} pod name {1}".format(job.id_, n))
+                    logs = current_k8s_corev1_api_client.read_namespaced_pod_log(
+                            namespace="default",
+                            name=job.pod_name,
+                    )
+            except Exception as e:
+                logging.error(f"Error from Kubernetes API while getting {job.pod_name} logs: {e}")
+
+        # put logs to redis if needed
         started_at = (
             job.started_at.strftime(WORKFLOW_TIME_FORMAT) if job.started_at else None
         )
@@ -228,7 +203,7 @@ def build_workflow_logs(workflow, steps=None, paginate=None):
             "docker_img": job.docker_img or "",
             "cmd": job.prettified_cmd or "",
             "status": job.status.name or "",
-            "logs": logstr or "",
+            "logs": logs or "",
             "started_at": started_at,
             "finished_at": finished_at,
         }

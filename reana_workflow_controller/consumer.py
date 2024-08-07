@@ -31,7 +31,7 @@ from reana_commons.utils import (
     build_unique_component_name,
 )
 from reana_db.database import Session
-from reana_db.models import Job, JobCache, Workflow, RunStatus, WorkflowLog
+from reana_db.models import JobCache, Workflow, RunStatus
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -158,7 +158,6 @@ def _update_workflow_status(workflow, status, logs, pod_name=None):
             try:
                 workflow_engine_logs = _get_workflow_engine_pod_logs(workflow)
                 workflow.logs += workflow_engine_logs + "\n"
-                _get_workflow_log(workflow)
             except ApiException as e:
                 logging.exception(
                     f"Could not fetch workflow engine pod logs for workflow {workflow.id_}. "
@@ -304,10 +303,6 @@ def _get_workflow_engine_pod_logs(workflow: Workflow) -> str:
 
 def _get_workflow_log(workflow):
     logs = ""
-    dd = 1000000
-    if len(workflow.log) != 0:
-        dd = int((datetime.now() - datetime.fromtimestamp(workflow.log[-1].time.timestamp())).total_seconds())
-    logging.info(dd)
     try:
         n = workflow.pod_name
         if n is not None:
@@ -315,18 +310,8 @@ def _get_workflow_log(workflow):
             logs = current_k8s_corev1_api_client.read_namespaced_pod_log(
                     namespace="default",
                     name=workflow.pod_name,
-                    since_seconds=dd,
-                    timestamps = True,
                     container="workflow-engine",
             )
     except Exception as e:
-        logging.error(f"Error from Kubernetes API while getting job logs: {e}")
-
-    for l in logs.splitlines():
-        tt = l.split(" ", 1)
-        log = WorkflowLog()
-        log.workflow_id = workflow.id_
-        log.time = tt[0]
-        log.log = tt[1]
-        Session.add(log)
-    Session.commit()
+        logging.error(f"Error from Kubernetes API while getting workflow logs: {e}")
+    return logs
