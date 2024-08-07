@@ -13,9 +13,13 @@ import logging
 
 from flask import Blueprint, jsonify, request
 
-from reana_commons.config import WORKFLOW_TIME_FORMAT
+from reana_commons.config import WORKFLOW_TIME_FORMAT, REANA_RUNTIME_KUBERNETES_NAMESPACE
 from reana_commons.errors import REANASecretDoesNotExist
+from reana_commons.redis import redis_cache
+from reana_commons.k8s.api_client import current_k8s_corev1_api_client
+
 from reana_db.utils import _get_workflow_with_uuid_or_name
+from reana_db.database import Session
 
 from reana_workflow_controller.errors import (
     REANAExternalCallError,
@@ -31,7 +35,6 @@ from reana_workflow_controller.rest.utils import (
     stop_workflow,
     use_paginate_args,
 )
-from reana_workflow_controller.consumer import _get_workflow_log
 
 START = "start"
 STOP = "stop"
@@ -152,6 +155,9 @@ def get_workflow_logs(workflow_id_or_name, paginate=None, **kwargs):  # noqa
                 "engine_specific": None,
             }
         else:
+            if workflow.pod_name is None or workflow.pod_name == "":
+                _set_workflow_pod_name(workflow)
+            # pod name can still be not set if the job is not yet scheduled
             logs = workflow.logs
             if logs is None or logs == "":
                 logs = _get_workflow_log(workflow.pod_name)
@@ -546,3 +552,30 @@ def set_workflow_status(workflow_id_or_name):  # noqa
         return jsonify({"message": str(e)}), 502
     except Exception as e:
         return jsonify({"message": str(e)}), 500
+
+@redis_cache.cache(ttl=10)
+def _get_workflow_log(pod_name):
+    logs = ""
+    try:
+        n = pod_name
+        if n is not None and n != "":
+            logs = current_k8s_corev1_api_client.read_namespaced_pod_log(
+                    namespace=REANA_RUNTIME_KUBERNETES_NAMESPACE,
+                    name=pod_name,
+                    container="workflow-engine",
+            )
+    except Exception as e:
+        logging.error(f"Error from Kubernetes API while getting workflow logs: {e}")
+    return logs
+
+def _set_workflow_pod_name(workflow):
+    pods = current_k8s_corev1_api_client.list_namespaced_pod(
+        namespace=REANA_RUNTIME_KUBERNETES_NAMESPACE,
+        label_selector=f"reana-run-batch-workflow-uuid={str(workflow.id_)}",
+    )
+    for pod in pods.items:
+        if str(workflow.id_) in pod.metadata.name:
+            workflow.pod_name = pod.metadata.name
+            Session.add(workflow)
+            Session.commit()
+            break

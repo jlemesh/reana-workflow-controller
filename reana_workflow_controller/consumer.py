@@ -30,7 +30,6 @@ from reana_commons.utils import (
     calculate_job_input_hash,
     build_unique_component_name,
 )
-from reana_commons.redis import redis_cache
 from reana_db.database import Session
 from reana_db.models import JobCache, Workflow, RunStatus
 from sqlalchemy.exc import SQLAlchemyError
@@ -104,8 +103,7 @@ class JobStatusConsumer(BaseConsumer):
 
                 if workflow.can_transition_to(next_status):
                     logs = body_dict.get("logs") or ""
-                    pod_name = body_dict.get("pod_name")
-                    _update_workflow_status(workflow, next_status, logs, pod_name=pod_name)
+                    _update_workflow_status(workflow, next_status, logs)
                     if "message" in body_dict and body_dict.get("message"):
                         msg = body_dict["message"]
                         if "progress" in msg:
@@ -113,8 +111,6 @@ class JobStatusConsumer(BaseConsumer):
                         # Caching: calculate input hash and store in JobCache
                         if "caching_info" in msg:
                             _update_job_cache(msg)
-                        if "pod_name" in msg:
-                            _update_workflow_pod_name(workflow, msg["pod_name"])
                     Session.commit()
                 else:
                     logging.error(
@@ -145,10 +141,10 @@ class JobStatusConsumer(BaseConsumer):
             )
 
 
-def _update_workflow_status(workflow, status, logs, pod_name=None):
+def _update_workflow_status(workflow, status, logs):
     """Update workflow status in DB."""
     if workflow.status != status:
-        Workflow.update_workflow_status(Session, workflow.id_, status, logs, None, pod_name)
+        Workflow.update_workflow_status(Session, workflow.id_, status, logs, None)
         if workflow.git_ref:
             _update_commit_status(workflow, status)
 
@@ -302,17 +298,3 @@ def _get_workflow_engine_pod_logs(workflow: Workflow) -> str:
     # when a workflow fails to be scheduled
     return ""
 
-@redis_cache.cache(ttl=10)
-def _get_workflow_log(pod_name):
-    logs = ""
-    try:
-        n = pod_name
-        if n is not None and n != "":
-            logs = current_k8s_corev1_api_client.read_namespaced_pod_log(
-                    namespace="default",
-                    name=pod_name,
-                    container="workflow-engine",
-            )
-    except Exception as e:
-        logging.error(f"Error from Kubernetes API while getting workflow logs: {e}")
-    return logs

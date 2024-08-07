@@ -9,7 +9,6 @@
 """REANA Workflow Controller workflows REST API."""
 
 import difflib
-from datetime import datetime
 import fs
 import json
 import logging
@@ -33,7 +32,7 @@ from flask import jsonify, request, send_file
 from git import Repo
 from kubernetes.client.rest import ApiException
 from reana_commons import workspace
-from reana_commons.config import REANA_WORKFLOW_UMASK, WORKFLOW_TIME_FORMAT
+from reana_commons.config import REANA_WORKFLOW_UMASK, WORKFLOW_TIME_FORMAT, REANA_RUNTIME_KUBERNETES_NAMESPACE
 from reana_commons.k8s.secrets import REANAUserSecretsStore
 from reana_commons.utils import (
     get_workflow_status_change_verb,
@@ -176,6 +175,9 @@ def build_workflow_logs(workflow, steps=None, paginate=None):
     jobs = paginate(query).get("items") if paginate else query
     all_logs = OrderedDict()
     for job in jobs:
+        if job.pod_name is None or job.pod_name == "":
+            _set_job_pod_name(job)
+        # pod name can still be not set if the job is not yet scheduled
         logs = job.logs
         if logs is None or logs == "":
             logs = _get_job_logs(job.pod_name)
@@ -829,3 +831,13 @@ def use_paginate_args():
         return inner
 
     return decorator
+
+def _set_job_pod_name(job):
+    job_pods = current_k8s_corev1_api_client.list_namespaced_pod(
+        namespace=REANA_RUNTIME_KUBERNETES_NAMESPACE,
+        label_selector=f"job-name={job.backend_job_id}",
+    )
+    if job_pods.items:
+        job.pod_name = job_pods.items[0].metadata.name
+        Session.add(job)
+        Session.commit()
