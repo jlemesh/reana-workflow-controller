@@ -31,7 +31,7 @@ from reana_commons.utils import (
     build_unique_component_name,
 )
 from reana_db.database import Session
-from reana_db.models import Job, JobCache, Workflow, RunStatus
+from reana_db.models import JobCache, Workflow, RunStatus
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -84,6 +84,7 @@ class JobStatusConsumer(BaseConsumer):
         try:
             message.ack()
             body_dict = json.loads(body)
+            logging.info(body_dict)
             workflow_uuid = body_dict.get("workflow_uuid")
             workflow = (
                 Session.query(Workflow)
@@ -170,6 +171,11 @@ def _update_workflow_status(workflow, status, logs):
                         f"Error: {e}"
                     )
 
+
+def _update_workflow_pod_name(workflow, pod_name):
+    """Update workflow pod name in DB."""
+    workflow.pod_name = pod_name
+    Session.add(workflow)
 
 def _update_commit_status(workflow, status):
     if status == RunStatus.finished:
@@ -291,3 +297,4 @@ def _get_workflow_engine_pod_logs(workflow: Workflow) -> str:
     # There might not be any pod returned by `list_namespaced_pod`, for example
     # when a workflow fails to be scheduled
     return ""
+
