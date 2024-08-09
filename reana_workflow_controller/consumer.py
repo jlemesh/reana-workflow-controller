@@ -154,6 +154,7 @@ def _update_workflow_status(workflow, status, logs):
             try:
                 workflow_engine_logs = _get_workflow_engine_pod_logs(workflow)
                 workflow.logs += workflow_engine_logs + "\n"
+                workflow.logs += _get_dask_pod_logs(workflow)
             except ApiException as e:
                 logging.exception(
                     f"Could not fetch workflow engine pod logs for workflow {workflow.id_}. "
@@ -291,3 +292,18 @@ def _get_workflow_engine_pod_logs(workflow: Workflow) -> str:
     # There might not be any pod returned by `list_namespaced_pod`, for example
     # when a workflow fails to be scheduled
     return ""
+
+def _get_dask_pod_logs(workflow: Workflow) -> str:
+    pods = current_k8s_corev1_api_client.list_namespaced_pod(
+        namespace=REANA_RUNTIME_KUBERNETES_NAMESPACE,
+        label_selector="reana-wf=reana-wf-12345" #f"reana-run-batch-workflow-uuid={str(workflow.id_)}",
+    )
+    logs = ""
+    for pod in pods.items:
+        logs += current_k8s_corev1_api_client.read_namespaced_pod_log(
+            namespace=pod.metadata.namespace,
+            name=pod.metadata.name,
+        )
+    # There might not be any pod returned by `list_namespaced_pod`, for example
+    # when a workflow fails to be scheduled
+    return logs
