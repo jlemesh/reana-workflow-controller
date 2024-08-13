@@ -211,7 +211,10 @@ def build_workflow_logs(workflow, steps=None, paginate=None):
             ]
         }
 
-        response = client.search(index='job_log', body=query, size=50)
+        logging.info("Searching for logs of job {0}.".format(job.backend_job_id))
+
+        response = client.search(index='job_log', body=query)
+        logging.info("Total Job Log Hits: {0}".format(response['hits']['total']['value']))
         job_logs = ""
         for hit in response['hits']['hits']:
             job_logs += hit['_source']['log'] + "\n"
