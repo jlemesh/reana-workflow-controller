@@ -167,7 +167,7 @@ def get_workflow_logs(workflow_id_or_name, paginate=None, **kwargs):  # noqa
             query = {
                 "query": {
                     "match": {
-                        "kubernetes.labels.reana-run-batch-workflow-uuid": workflow.id_
+                        "tag": workflow.id_
                     }
                 },
                 "sort": [
@@ -185,7 +185,7 @@ def get_workflow_logs(workflow_id_or_name, paginate=None, **kwargs):  # noqa
             logging.info("Total Workflow Log Hits: {0}".format(response['hits']['total']['value']))
             wf_logs = ""
             for hit in response['hits']['hits']:
-                wf_logs += hit['_source']['log'] + "\n"
+                wf_logs += hit['_source']['message'] + "\n"
             workflow_logs = {
                 "workflow_logs": wf_logs,
                 "job_logs": build_workflow_logs(workflow, paginate=paginate),
