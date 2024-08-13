@@ -58,6 +58,7 @@ install_requires = [
     "uWSGI>=2.0.17",
     "uwsgitop>=0.10",
     "webargs>=6.1.0,<7.0.0",
+    "opensearch-py==2.6.0",
 ]
 
 packages = find_packages()
