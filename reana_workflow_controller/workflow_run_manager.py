@@ -558,7 +558,7 @@ class KubernetesWorkflowRunManager(WorkflowRunManager):
         )
         workflow_engine_env_vars = env_vars or self._workflow_engine_env_vars()
         owner_id = str(self.workflow.owner_id)
-        command = format_cmd("trap 'rm -f /opt/app/running' EXIT; " + command + " >> /opt/app/log.log 2>&1")
+        command = format_cmd(command + " >> /opt/app/log.log 2>&1")
         workspace_mount, workspace_volume = get_workspace_volume(
             self.workflow.workspace_path
         )
@@ -614,12 +614,6 @@ class KubernetesWorkflowRunManager(WorkflowRunManager):
                     "mountPath": "/opt/app",
                 }
             ],
-            liveness_probe=client.V1Probe(
-                _exec=client.V1ExecAction(
-                    command=["/bin/sh", "-c", "test -f /opt/app/running"]
-                ),
-                period_seconds=1,
-            ),
         )
 
         workflow_engine_container = client.V1Container(
@@ -630,18 +624,6 @@ class KubernetesWorkflowRunManager(WorkflowRunManager):
             volume_mounts=[],
             command=["/bin/bash", "-c"],
             args=command,
-            lifecycle=client.V1Lifecycle(
-                post_start=client.V1Handler(
-                    client.V1ExecAction(
-                        command=["/bin/sh", "-c", "touch /opt/app/running"]
-                    ),
-                ),
-                pre_stop=client.V1Handler(
-                    client.V1ExecAction(
-                        command=["/bin/sh", "-c", "rm -f /opt/app/running"]
-                    ),
-                ),
-            ),
         )
         workflow_engine_env_vars.extend(
             [
