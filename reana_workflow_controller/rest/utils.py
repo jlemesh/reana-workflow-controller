@@ -204,7 +204,7 @@ def build_workflow_logs(workflow, steps=None, paginate=None):
             },
             "sort": [
                 {
-                    "time": {
+                    "@timestamp": {
                         "order": "desc"
                     }
                 }

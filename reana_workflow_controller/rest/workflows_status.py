@@ -172,8 +172,8 @@ def get_workflow_logs(workflow_id_or_name, paginate=None, **kwargs):  # noqa
                 },
                 "sort": [
                     {
-                        "time": {
-                            "order": "asc"
+                        "@timestamp": {
+                            "order": "desc"
                         }
                     }
                 ]
