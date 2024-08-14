@@ -558,7 +558,7 @@ class KubernetesWorkflowRunManager(WorkflowRunManager):
         )
         workflow_engine_env_vars = env_vars or self._workflow_engine_env_vars()
         owner_id = str(self.workflow.owner_id)
-        command = format_cmd("trap 'rm -f /opt/app/running' EXIT; " + command)
+        command = format_cmd("trap 'rm -f /opt/app/running' EXIT; " + command + " >> /opt/app/log.log 2>&1")
         workspace_mount, workspace_volume = get_workspace_volume(
             self.workflow.workspace_path
         )
@@ -591,6 +591,7 @@ class KubernetesWorkflowRunManager(WorkflowRunManager):
         fluentd_container = client.V1Container(
             name="fluentd",
             image="fluent/fluentd-kubernetes-daemonset:v1-debian-opensearch-arm64",
+            image_pull_policy="IfNotPresent",
             env=[
                 {
                     "name": "FLUENT_UID", "value": "0"
