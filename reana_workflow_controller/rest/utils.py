@@ -217,7 +217,6 @@ def build_workflow_logs(workflow, steps=None, paginate=None):
         logging.info("Total Job Log Hits: {0}".format(response['hits']['total']['value']))
         job_logs = ""
         for hit in response['hits']['hits']:
-            logging.info("Job ID: {0}, Time: {1}, Log: {2}".format(hit['_source']['tag'], hit['_source']['time'], hit['_source']['message']))
             job_logs += hit['_source']['message'] + "\n"
         item = {
             "workflow_uuid": str(job.workflow_uuid) or "",
