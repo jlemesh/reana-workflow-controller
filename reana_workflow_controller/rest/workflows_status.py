@@ -181,7 +181,7 @@ def get_workflow_logs(workflow_id_or_name, paginate=None, **kwargs):  # noqa
 
             logging.info("Searching for logs of workflow {0}.".format(workflow.id_))
 
-            response = client.search(index='workflow_log', body=query)
+            response = client.search(index='workflow_log', body=query, size=5000)
             logging.info("Total Workflow Log Hits: {0}".format(response['hits']['total']['value']))
             wf_logs = ""
             for hit in response['hits']['hits']:
