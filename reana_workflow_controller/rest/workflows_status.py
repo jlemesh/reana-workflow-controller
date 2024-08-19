@@ -9,7 +9,8 @@
 """REANA Workflow Controller status REST API."""
 
 import json
-
+from opensearchpy import OpenSearch
+import logging
 from flask import Blueprint, jsonify, request
 
 from reana_commons.config import WORKFLOW_TIME_FORMAT
@@ -150,8 +151,43 @@ def get_workflow_logs(workflow_id_or_name, paginate=None, **kwargs):  # noqa
                 "engine_specific": None,
             }
         else:
+            host = 'opensearch-cluster-master'
+            port = 9200
+
+            # Create the client with SSL/TLS and hostname verification disabled.
+            client = OpenSearch(
+                hosts = [{'host': host, 'port': port}],
+                http_compress = True, # enables gzip compression for request bodies
+                use_ssl = False,
+                verify_certs = False,
+                ssl_assert_hostname = False,
+                ssl_show_warn = False
+            )
+            # search for logs of a specific job
+            query = {
+                "query": {
+                    "match": {
+                        "tag": workflow.id_
+                    }
+                },
+                "sort": [
+                    {
+                        "time": {
+                            "order": "desc"
+                        }
+                    }
+                ]
+            }
+
+            logging.info("Searching for logs of workflow {0}.".format(workflow.id_))
+
+            response = client.search(index='workflow_log', body=query, size=1000)
+            logging.info("Total Workflow Log Hits: {0}".format(response['hits']['total']['value']))
+            wf_logs = ""
+            for hit in response['hits']['hits']:
+                wf_logs += hit['_source']['message'] + "\n"
             workflow_logs = {
-                "workflow_logs": workflow.logs,
+                "workflow_logs": wf_logs,
                 "job_logs": build_workflow_logs(workflow, paginate=paginate),
                 "engine_specific": workflow.engine_specific,
             }

@@ -27,6 +27,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 from uuid import UUID
+from opensearchpy import OpenSearch
 
 from flask import jsonify, request, send_file
 from git import Repo
@@ -166,6 +167,20 @@ def is_uuid_v4(uuid_or_name: str) -> bool:
 
 def build_workflow_logs(workflow, steps=None, paginate=None):
     """Return the logs for all jobs of a workflow."""
+
+    host = 'opensearch-cluster-master'
+    port = 9200
+
+    # Create the client with SSL/TLS and hostname verification disabled.
+    client = OpenSearch(
+        hosts = [{'host': host, 'port': port}],
+        http_compress = True, # enables gzip compression for request bodies
+        use_ssl = False,
+        verify_certs = False,
+        ssl_assert_hostname = False,
+        ssl_show_warn = False
+    )
+
     query = Session.query(Job).filter_by(workflow_uuid=workflow.id_)
     if steps:
         query = query.filter(Job.job_name.in_(steps))
@@ -179,6 +194,30 @@ def build_workflow_logs(workflow, steps=None, paginate=None):
         finished_at = (
             job.finished_at.strftime(WORKFLOW_TIME_FORMAT) if job.finished_at else None
         )
+        
+        # search for logs of a specific job
+        query = {
+            "query": {
+                "match": {
+                    "tag": job.backend_job_id
+                }
+            },
+            "sort": [
+                {
+                    "time": {
+                        "order": "desc"
+                    }
+                }
+            ]
+        }
+
+        logging.info("Searching for logs of job {0}.".format(job.backend_job_id))
+
+        response = client.search(index='job_log', body=query, size=1000)
+        logging.info("Total Job Log Hits: {0}".format(response['hits']['total']['value']))
+        job_logs = ""
+        for hit in response['hits']['hits']:
+            job_logs += hit['_source']['message'] + "\n"
         item = {
             "workflow_uuid": str(job.workflow_uuid) or "",
             "job_name": job.job_name or "",
@@ -187,7 +226,7 @@ def build_workflow_logs(workflow, steps=None, paginate=None):
             "docker_img": job.docker_img or "",
             "cmd": job.prettified_cmd or "",
             "status": job.status.name or "",
-            "logs": job.logs or "",
+            "logs": job_logs or "",
             "started_at": started_at,
             "finished_at": finished_at,
         }

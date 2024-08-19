@@ -558,7 +558,7 @@ class KubernetesWorkflowRunManager(WorkflowRunManager):
         )
         workflow_engine_env_vars = env_vars or self._workflow_engine_env_vars()
         owner_id = str(self.workflow.owner_id)
-        command = format_cmd(command)
+        command = format_cmd(command + " >> /opt/app/log.log 2>&1")
         workspace_mount, workspace_volume = get_workspace_volume(
             self.workflow.workspace_path
         )
@@ -587,6 +587,34 @@ class KubernetesWorkflowRunManager(WorkflowRunManager):
         job.metadata = workflow_metadata
         spec = client.V1JobSpec(template=client.V1PodTemplateSpec())
         spec.template.metadata = workflow_metadata
+
+        fluentd_container = client.V1Container(
+            name="fluentd",
+            image="fluent/fluentd-kubernetes-daemonset:v1-debian-opensearch-arm64",
+            image_pull_policy="IfNotPresent",
+            env=[
+                {
+                    "name": "FLUENT_UID", "value": "0"
+                },
+                {
+                    "name": "POD_NAME", "valueFrom": {"fieldRef": {"fieldPath": "metadata.name"}}
+                },
+                {
+                    "name": "WORKFLOW_ID", "value": str(self.workflow.id_)
+                }
+            ],
+            volume_mounts=[
+                {
+                    "name": "fluentd-config-workflow",
+                    "mountPath": "/fluentd/etc/fluent.conf",
+                    "subPath": "fluent.conf",
+                },
+                {
+                    "name": "applog",
+                    "mountPath": "/opt/app",
+                }
+            ],
+        )
 
         workflow_engine_container = client.V1Container(
             name=current_app.config["WORKFLOW_ENGINE_NAME"],
@@ -628,7 +656,13 @@ class KubernetesWorkflowRunManager(WorkflowRunManager):
             run_as_group=WORKFLOW_RUNTIME_USER_GID,
             run_as_user=WORKFLOW_RUNTIME_USER_UID,
         )
-        workflow_engine_container.volume_mounts = [workspace_mount]
+        workflow_engine_container.volume_mounts = [
+            workspace_mount,
+            {
+                "name": "applog",
+                "mountPath": "/opt/app",
+            }
+        ]
 
         if kerberos:
             workflow_engine_container.volume_mounts += kerberos.volume_mounts
@@ -729,7 +763,7 @@ class KubernetesWorkflowRunManager(WorkflowRunManager):
         job_controller_container.ports = [
             {"containerPort": current_app.config["JOB_CONTROLLER_CONTAINER_PORT"]}
         ]
-        containers = [workflow_engine_container, job_controller_container]
+        containers = [workflow_engine_container, job_controller_container, fluentd_container]
         spec.template.spec = client.V1PodSpec(
             containers=containers,
             node_selector=REANA_RUNTIME_BATCH_KUBERNETES_NODE_LABEL,
@@ -742,6 +776,16 @@ class KubernetesWorkflowRunManager(WorkflowRunManager):
         volumes = [
             workspace_volume,
             secrets_store.get_file_secrets_volume_as_k8s_specs(),
+            {
+                "name": "fluentd-config-workflow",
+                "configMap": {
+                    "name": "fluentd-config-workflow",
+                },
+            },
+            {
+                "name": "applog",
+                "emptyDir": {},
+            },
         ]
 
         if kerberos:
