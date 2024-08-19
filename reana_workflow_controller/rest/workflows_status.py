@@ -16,6 +16,8 @@ from flask import Blueprint, jsonify, request
 from reana_commons.config import WORKFLOW_TIME_FORMAT
 from reana_commons.errors import REANASecretDoesNotExist
 from reana_db.utils import _get_workflow_with_uuid_or_name
+from reana_commons.opensearch import opensearch_client
+from reana_commons.redis import redis_cache
 
 from reana_workflow_controller.errors import (
     REANAExternalCallError,
@@ -151,41 +153,7 @@ def get_workflow_logs(workflow_id_or_name, paginate=None, **kwargs):  # noqa
                 "engine_specific": None,
             }
         else:
-            host = 'opensearch-cluster-master'
-            port = 9200
-
-            # Create the client with SSL/TLS and hostname verification disabled.
-            client = OpenSearch(
-                hosts = [{'host': host, 'port': port}],
-                http_compress = True, # enables gzip compression for request bodies
-                use_ssl = False,
-                verify_certs = False,
-                ssl_assert_hostname = False,
-                ssl_show_warn = False
-            )
-            # search for logs of a specific job
-            query = {
-                "query": {
-                    "match": {
-                        "kubernetes.labels.reana-run-batch-workflow-uuid": workflow.id_
-                    }
-                },
-                "sort": [
-                    {
-                        "@timestamp": {
-                            "order": "desc"
-                        }
-                    }
-                ]
-            }
-
-            logging.info("Searching for logs of workflow {0}.".format(workflow.id_))
-
-            response = client.search(index='workflow_log', body=query, size=5000)
-            logging.info("Total Workflow Log Hits: {0}".format(response['hits']['total']['value']))
-            wf_logs = ""
-            for hit in response['hits']['hits']:
-                wf_logs += hit['_source']['log'] + "\n"
+            wf_logs = _get_workflow_logs(str(workflow.id_))
             workflow_logs = {
                 "workflow_logs": wf_logs,
                 "job_logs": build_workflow_logs(workflow, paginate=paginate),
@@ -219,6 +187,34 @@ def get_workflow_logs(workflow_id_or_name, paginate=None, **kwargs):  # noqa
         return jsonify({"message": str(e)}), 400
     except Exception as e:
         return jsonify({"message": str(e)}), 500
+
+
+@redis_cache.cache(ttl=10)
+def _get_workflow_logs(workflow_id):
+    # search for logs of a specific job
+    query = {
+        "query": {
+            "match": {
+                "kubernetes.labels.reana-run-batch-workflow-uuid": workflow_id
+            }
+        },
+        "sort": [
+            {
+                "@timestamp": {
+                    "order": "desc"
+                }
+            }
+        ]
+    }
+
+    logging.info("Searching for logs of workflow {0}.".format(workflow_id))
+
+    response = opensearch_client.search(index='workflow_log', body=query, size=5000)
+    logging.info("Total Workflow Log Hits: {0}".format(response['hits']['total']['value']))
+    wf_logs = ""
+    for hit in response['hits']['hits']:
+        wf_logs += hit['_source']['log'] + "\n"
+    return wf_logs
 
 
 @blueprint.route("/workflows/<workflow_id_or_name>/status", methods=["GET"])

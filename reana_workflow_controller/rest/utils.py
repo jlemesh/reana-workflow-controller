@@ -182,7 +182,7 @@ def build_workflow_logs(workflow, steps=None, paginate=None):
             job.finished_at.strftime(WORKFLOW_TIME_FORMAT) if job.finished_at else None
         )
         
-        job_logs = _get_job_logs(job)
+        job_logs = _get_job_logs(job.backend_job_id)
         item = {
             "workflow_uuid": str(job.workflow_uuid) or "",
             "job_name": job.job_name or "",
@@ -199,13 +199,13 @@ def build_workflow_logs(workflow, steps=None, paginate=None):
 
     return all_logs
 
-@redis_cache.cached(ttl=10)
-def _get_job_logs(job):
+@redis_cache.cache(ttl=10)
+def _get_job_logs(backend_job_id):
     # search for logs of a specific job
     query = {
         "query": {
             "match": {
-                "kubernetes.labels.job-name": job.backend_job_id
+                "kubernetes.labels.job-name": backend_job_id
             }
         },
         "sort": [
@@ -217,7 +217,7 @@ def _get_job_logs(job):
         ]
     }
 
-    logging.info("Searching for logs of job {0}.".format(job.backend_job_id))
+    logging.info("Searching for logs of job {0}.".format(backend_job_id))
 
     response = opensearch_client.search(index='job_log', body=query, size=5000)
     logging.info("Total Job Log Hits: {0}".format(response['hits']['total']['value']))
