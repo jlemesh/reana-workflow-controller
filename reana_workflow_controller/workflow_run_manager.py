@@ -589,8 +589,8 @@ class KubernetesWorkflowRunManager(WorkflowRunManager):
         spec.template.metadata = workflow_metadata
 
         fluentd_container = client.V1Container(
-            name="fluentd",
-            image="fluent/fluentd-kubernetes-daemonset:v1-debian-opensearch-arm64",
+            name="fluentbit",
+            image="fluent/fluent-bit:latest-debug",
             image_pull_policy="IfNotPresent",
             env=[
                 {
@@ -605,9 +605,9 @@ class KubernetesWorkflowRunManager(WorkflowRunManager):
             ],
             volume_mounts=[
                 {
-                    "name": "fluentd-config-workflow",
-                    "mountPath": "/fluentd/etc/fluent.conf",
-                    "subPath": "fluent.conf",
+                    "name": "fluentbit-config-workflow",
+                    "mountPath": "/fluent-bit/etc/fluent-bit.conf",
+                    "subPath": "fluent-bit.conf",
                 },
                 {
                     "name": "applog",
@@ -777,9 +777,9 @@ class KubernetesWorkflowRunManager(WorkflowRunManager):
             workspace_volume,
             secrets_store.get_file_secrets_volume_as_k8s_specs(),
             {
-                "name": "fluentd-config-workflow",
+                "name": "fluentbit-config-workflow",
                 "configMap": {
-                    "name": "fluentd-config-workflow",
+                    "name": "fluentbit-config-workflow",
                 },
             },
             {

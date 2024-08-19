@@ -59,6 +59,7 @@ install_requires = [
     "uwsgitop>=0.10",
     "webargs>=6.1.0,<7.0.0",
     "opensearch-py==2.6.0",
+    "python-redis-cache==4.0.0",
 ]
 
 packages = find_packages()
