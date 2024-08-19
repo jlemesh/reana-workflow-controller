@@ -54,6 +54,8 @@ from reana_db.utils import (
     update_users_disk_quota,
     get_default_quota_resource,
 )
+from reana_commons.opensearch import opensearch_client
+from reana_commons.redis import redis_cache
 from sqlalchemy.exc import SQLAlchemyError
 from webargs import fields, validate
 from webargs.flaskparser import parser
@@ -179,6 +181,8 @@ def build_workflow_logs(workflow, steps=None, paginate=None):
         finished_at = (
             job.finished_at.strftime(WORKFLOW_TIME_FORMAT) if job.finished_at else None
         )
+        
+        job_logs = _get_job_logs(job.backend_job_id)
         item = {
             "workflow_uuid": str(job.workflow_uuid) or "",
             "job_name": job.job_name or "",
@@ -187,13 +191,40 @@ def build_workflow_logs(workflow, steps=None, paginate=None):
             "docker_img": job.docker_img or "",
             "cmd": job.prettified_cmd or "",
             "status": job.status.name or "",
-            "logs": job.logs or "",
+            #"logs": job_logs or "",
             "started_at": started_at,
             "finished_at": finished_at,
         }
         all_logs[str(job.id_)] = item
 
     return all_logs
+
+@redis_cache.cache(ttl=10)
+def _get_job_logs(backend_job_id):
+    # search for logs of a specific job
+    query = {
+        "query": {
+            "match": {
+                "kubernetes.labels.job-name": backend_job_id
+            }
+        },
+        "sort": [
+            {
+                "@timestamp": {
+                    "order": "desc"
+                }
+            }
+        ]
+    }
+
+    logging.info("Searching for logs of job {0}.".format(backend_job_id))
+
+    response = opensearch_client.search(index='job_log', body=query, size=5000)
+    logging.info("Total Job Log Hits: {0}".format(response['hits']['total']['value']))
+    job_logs = ""
+    for hit in response['hits']['hits']:
+        job_logs += hit['_source']['log'] + "\n"
+    return job_logs
 
 
 def remove_workflow_jobs_from_cache(workflow):

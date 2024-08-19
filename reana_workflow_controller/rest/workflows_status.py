@@ -9,12 +9,16 @@
 """REANA Workflow Controller status REST API."""
 
 import json
-
+import logging
 from flask import Blueprint, jsonify, request
 
 from reana_commons.config import WORKFLOW_TIME_FORMAT
 from reana_commons.errors import REANASecretDoesNotExist
 from reana_db.utils import _get_workflow_with_uuid_or_name
+from reana_db.models import Job
+from reana_db.database import Session
+from reana_commons.opensearch import opensearch_client
+from reana_commons.redis import redis_cache
 
 from reana_workflow_controller.errors import (
     REANAExternalCallError,
@@ -29,6 +33,7 @@ from reana_workflow_controller.rest.utils import (
     start_workflow,
     stop_workflow,
     use_paginate_args,
+    _get_job_logs
 )
 
 START = "start"
@@ -150,8 +155,9 @@ def get_workflow_logs(workflow_id_or_name, paginate=None, **kwargs):  # noqa
                 "engine_specific": None,
             }
         else:
+            wf_logs = _get_workflow_logs(str(workflow.id_))
             workflow_logs = {
-                "workflow_logs": workflow.logs,
+                "workflow_logs": wf_logs,
                 "job_logs": build_workflow_logs(workflow, paginate=paginate),
                 "engine_specific": workflow.engine_specific,
             }
@@ -175,6 +181,247 @@ def get_workflow_logs(workflow_id_or_name, paginate=None, **kwargs):  # noqa
                     "that workflow does not exist. "
                     "Please set your REANA_WORKON environment "
                     "variable appropriately.".format(workflow_id_or_name)
+                }
+            ),
+            404,
+        )
+    except KeyError as e:
+        return jsonify({"message": str(e)}), 400
+    except Exception as e:
+        return jsonify({"message": str(e)}), 500
+
+
+@blueprint.route("/workflows/<workflow_id_or_name>/log", methods=["GET"])
+@use_paginate_args()
+def get_workflow_log(workflow_id_or_name, **kwargs):  # noqa
+    r"""Get workflow logs from a workflow engine.
+
+    ---
+    get:
+      summary: Returns logs of a specific workflow from a workflow engine.
+      description: >-
+        This resource is expecting a workflow UUID and a filename to return
+        its outputs.
+      operationId: get_workflow_log
+      produces:
+        - application/json
+      parameters:
+        - name: user
+          in: query
+          description: Required. UUID of workflow owner.
+          required: true
+          type: string
+        - name: workflow_id_or_name
+          in: path
+          description: Required. Workflow UUID or name.
+          required: true
+          type: string
+      responses:
+        200:
+          description: >-
+            Request succeeded. Info about workflow, including the status is
+            returned.
+          schema:
+            type: object
+            properties:
+              workflow_id:
+                type: string
+              workflow_name:
+                type: string
+              logs:
+                type: string
+              user:
+                type: string
+          examples:
+            application/json:
+              {
+                "workflow_id": "256b25f4-4cfb-4684-b7a8-73872ef455a1",
+                "workflow_name": "mytest-1",
+                "logs": {
+                    'workflow_logs': string,
+                },
+                "user": "00000000-0000-0000-0000-000000000000"
+              }
+        400:
+          description: >-
+            Request failed. The incoming data specification seems malformed.
+        404:
+          description: >-
+            Request failed. User does not exist.
+          examples:
+            application/json:
+              {
+                "message": "User 00000000-0000-0000-0000-000000000000 does not
+                            exist"
+              }
+        500:
+          description: >-
+            Request failed. Internal controller error.
+          examples:
+            application/json:
+              {
+                "message": "Internal workflow controller error."
+              }
+    """
+    try:
+        user_uuid = request.args["user"]
+
+        workflow = _get_workflow_with_uuid_or_name(workflow_id_or_name, user_uuid)
+
+        wf_logs = _get_workflow_logs(str(workflow.id_))
+        return (
+            jsonify(
+                {
+                    "workflow_id": workflow.id_,
+                    "workflow_name": get_workflow_name(workflow),
+                    "logs": json.dumps(wf_logs),
+                    "user": user_uuid,
+                }
+            ),
+            200,
+        )
+    except ValueError:
+        return (
+            jsonify(
+                {
+                    "message": "REANA_WORKON is set to {0}, but "
+                    "that workflow does not exist. "
+                    "Please set your REANA_WORKON environment "
+                    "variable appropriately.".format(workflow_id_or_name)
+                }
+            ),
+            404,
+        )
+    except KeyError as e:
+        return jsonify({"message": str(e)}), 400
+    except Exception as e:
+        return jsonify({"message": str(e)}), 500
+
+
+@redis_cache.cache(ttl=10)
+def _get_workflow_logs(workflow_id):
+    # search for logs of a specific job
+    query = {
+        "query": {
+            "match": {
+                "kubernetes.labels.reana-run-batch-workflow-uuid": workflow_id
+            }
+        },
+        "sort": [
+            {
+                "@timestamp": {
+                    "order": "desc"
+                }
+            }
+        ]
+    }
+
+    logging.info("Searching for logs of workflow {0}.".format(workflow_id))
+
+    response = opensearch_client.search(index='workflow_log', body=query, size=5000)
+    logging.info("Total Workflow Log Hits: {0}".format(response['hits']['total']['value']))
+    wf_logs = ""
+    for hit in response['hits']['hits']:
+        wf_logs += hit['_source']['log'] + "\n"
+    return wf_logs
+
+
+@blueprint.route("/workflows/<workflow_id>/job/<job_id>/log", methods=["GET"])
+@use_paginate_args()
+def get_job_log(workflow_id, job_id, **kwargs):  # noqa
+    r"""Get workflow logs from a workflow engine.
+
+    ---
+    get:
+      summary: Returns logs of a specific workflow from a workflow engine.
+      description: >-
+        This resource is expecting a workflow UUID and a filename to return
+        its outputs.
+      operationId: get_job_log
+      produces:
+        - application/json
+      parameters:
+        - name: user
+          in: query
+          description: Required. UUID of workflow owner.
+          required: true
+          type: string
+        - name: job_id_or_name
+          in: path
+          description: Required. Workflow UUID or name.
+          required: true
+          type: string
+      responses:
+        200:
+          description: >-
+            Request succeeded. Info about workflow, including the status is
+            returned.
+          schema:
+            type: object
+            properties:
+              job_id:
+                type: string
+              job_name:
+                type: string
+              logs:
+                type: string
+              user:
+                type: string
+          examples:
+            application/json:
+              {
+                "job_id": "256b25f4-4cfb-4684-b7a8-73872ef455a1",
+                "job_name": "mytest-1",
+                "logs": {
+                    'job_logs': string,
+                },
+                "user": "00000000-0000-0000-0000-000000000000"
+              }
+        400:
+          description: >-
+            Request failed. The incoming data specification seems malformed.
+        404:
+          description: >-
+            Request failed. User does not exist.
+          examples:
+            application/json:
+              {
+                "message": "User 00000000-0000-0000-0000-000000000000 does not
+                            exist"
+              }
+        500:
+          description: >-
+            Request failed. Internal controller error.
+          examples:
+            application/json:
+              {
+                "message": "Internal workflow controller error."
+              }
+    """
+    try:
+        logging.info("Will request logs for job {0}.".format(job_id))
+        job = Session.query(Job).filter_by(workflow_uuid=workflow_id, id_=job_id).first()
+
+        job_logs = _get_job_logs(job.backend_job_id)
+        return (
+            jsonify(
+                {
+                    "job_id": job.id_,
+                    "job_name": job.job_name,
+                    "logs": job_logs,
+                    "user": job.owner_id,
+                }
+            ),
+            200,
+        )
+    except ValueError:
+        return (
+            jsonify(
+                {
+                    "message": "REANA_WORKON is set to {0}, but "
+                    "that workflow does not exist. "
+                    "Please set your REANA_WORKON environment "
+                    "variable appropriately.".format(workflow_id)
                 }
             ),
             404,
