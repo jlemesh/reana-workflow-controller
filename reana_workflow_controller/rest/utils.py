@@ -32,15 +32,14 @@ from flask import jsonify, request, send_file
 from git import Repo
 from kubernetes.client.rest import ApiException
 from reana_commons import workspace
-from reana_commons.config import REANA_WORKFLOW_UMASK, WORKFLOW_TIME_FORMAT, REANA_RUNTIME_KUBERNETES_NAMESPACE
+from reana_commons.k8s.api_client import current_k8s_corev1_api_client
+from reana_commons.config import REANA_WORKFLOW_UMASK, WORKFLOW_TIME_FORMAT
 from reana_commons.k8s.secrets import REANAUserSecretsStore
 from reana_commons.utils import (
     get_workflow_status_change_verb,
     remove_upper_level_references,
     is_directory,
 )
-from reana_commons.k8s.api_client import current_k8s_corev1_api_client
-from reana_commons.redis import redis_cache
 from reana_db.database import Session
 from reana_db.models import (
     Job,
@@ -56,6 +55,7 @@ from reana_db.utils import (
     update_users_disk_quota,
     get_default_quota_resource,
 )
+from reana_commons.redis import redis_cache
 from sqlalchemy.exc import SQLAlchemyError
 from webargs import fields, validate
 from webargs.flaskparser import parser
@@ -175,19 +175,14 @@ def build_workflow_logs(workflow, steps=None, paginate=None):
     jobs = paginate(query).get("items") if paginate else query
     all_logs = OrderedDict()
     for job in jobs:
-        if job.pod_name is None or job.pod_name == "":
-            _set_job_pod_name(job)
-        # pod name can still be not set if the job is not yet scheduled
-        logs = job.logs
-        if logs is None or logs == "":
-            logs = _get_job_logs(job.pod_name)
-
         started_at = (
             job.started_at.strftime(WORKFLOW_TIME_FORMAT) if job.started_at else None
         )
         finished_at = (
             job.finished_at.strftime(WORKFLOW_TIME_FORMAT) if job.finished_at else None
         )
+        
+        job_logs = _get_job_logs(job.pod_name)
         item = {
             "workflow_uuid": str(job.workflow_uuid) or "",
             "job_name": job.job_name or "",
@@ -196,7 +191,7 @@ def build_workflow_logs(workflow, steps=None, paginate=None):
             "docker_img": job.docker_img or "",
             "cmd": job.prettified_cmd or "",
             "status": job.status.name or "",
-            "logs": logs or "",
+            #"logs": job_logs or "",
             "started_at": started_at,
             "finished_at": finished_at,
         }
@@ -216,6 +211,7 @@ def _get_job_logs(pod_name):
     except Exception as e:
         logging.error(f"Error from Kubernetes API while getting job {pod_name} logs: {e}")
     return ""
+
 
 def remove_workflow_jobs_from_cache(workflow):
     """Remove any cached jobs from given workflow.
@@ -831,13 +827,3 @@ def use_paginate_args():
         return inner
 
     return decorator
-
-def _set_job_pod_name(job):
-    job_pods = current_k8s_corev1_api_client.list_namespaced_pod(
-        namespace=REANA_RUNTIME_KUBERNETES_NAMESPACE,
-        label_selector=f"job-name={job.backend_job_id}",
-    )
-    if job_pods.items:
-        job.pod_name = job_pods.items[0].metadata.name
-        Session.add(job)
-        Session.commit()
