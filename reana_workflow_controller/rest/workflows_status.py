@@ -284,7 +284,7 @@ def get_job_log(workflow_id, job_id, **kwargs):  # noqa
                 200,
             )
         job = Session.query(Job).filter_by(id_=job_id).first()
-        logging.info("Found job {0}.".format(job))
+        logging.info("Found job {0}.".format(job.pod_name))
         if job.logs == "" or job.logs is None:
           job_logs = _get_job_logs(job.pod_name)
         else:
