@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # This file is part of REANA.
-# Copyright (C) 2020, 2021, 2022, 2023 CERN.
+# Copyright (C) 2020, 2021, 2022, 2023, 2024 CERN.
 #
 # REANA is free software; you can redistribute it and/or modify it
 # under the terms of the MIT License; see LICENSE file for more details.
@@ -164,7 +164,7 @@ def is_uuid_v4(uuid_or_name: str) -> bool:
     return uuid.hex == uuid_or_name.replace("-", "")
 
 
-def build_workflow_logs(workflow, steps=None, paginate=None):
+def build_workflow_logs(workflow, steps=None, paginate=None, fetcher=None):
     """Return the logs for all jobs of a workflow."""
     query = Session.query(Job).filter_by(workflow_uuid=workflow.id_)
     if steps:
@@ -179,6 +179,9 @@ def build_workflow_logs(workflow, steps=None, paginate=None):
         finished_at = (
             job.finished_at.strftime(WORKFLOW_TIME_FORMAT) if job.finished_at else None
         )
+
+        logs = fetcher.fetch_job_logs(job.backend_job_id) if fetcher else None
+
         item = {
             "workflow_uuid": str(job.workflow_uuid) or "",
             "job_name": job.job_name or "",
@@ -187,7 +190,7 @@ def build_workflow_logs(workflow, steps=None, paginate=None):
             "docker_img": job.docker_img or "",
             "cmd": job.prettified_cmd or "",
             "status": job.status.name or "",
-            "logs": job.logs or "",
+            "logs": logs or job.logs or "",
             "started_at": started_at,
             "finished_at": finished_at,
         }

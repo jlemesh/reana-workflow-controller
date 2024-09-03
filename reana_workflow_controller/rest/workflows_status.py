@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # This file is part of REANA.
-# Copyright (C) 2020, 2021, 2022 CERN.
+# Copyright (C) 2020, 2021, 2022, 2024 CERN.
 #
 # REANA is free software; you can redistribute it and/or modify it
 # under the terms of the MIT License; see LICENSE file for more details.
@@ -16,11 +16,14 @@ from reana_commons.config import WORKFLOW_TIME_FORMAT
 from reana_commons.errors import REANASecretDoesNotExist
 from reana_db.utils import _get_workflow_with_uuid_or_name
 
+from reana_workflow_controller.config import REANA_OPENSEARCH_ENABLED
+
 from reana_workflow_controller.errors import (
     REANAExternalCallError,
     REANAWorkflowControllerError,
     REANAWorkflowStatusError,
 )
+from reana_workflow_controller.opensearch import OpenSearchLogFetcher
 from reana_workflow_controller.rest.utils import (
     build_workflow_logs,
     delete_workflow,
@@ -140,19 +143,27 @@ def get_workflow_logs(workflow_id_or_name, paginate=None, **kwargs):  # noqa
 
         workflow = _get_workflow_with_uuid_or_name(workflow_id_or_name, user_uuid, True)
 
+        fetcher = OpenSearchLogFetcher() if REANA_OPENSEARCH_ENABLED else None
+
         steps = None
         if request.is_json:
             steps = request.json
         if steps:
             workflow_logs = {
                 "workflow_logs": None,
-                "job_logs": build_workflow_logs(workflow, steps, paginate=paginate),
+                "job_logs": build_workflow_logs(
+                    workflow, steps, paginate=paginate, fetcher=fetcher
+                ),
                 "engine_specific": None,
             }
         else:
+            logs = fetcher.fetch_workflow_logs(workflow.id_) if fetcher else None
+
             workflow_logs = {
-                "workflow_logs": workflow.logs,
-                "job_logs": build_workflow_logs(workflow, paginate=paginate),
+                "workflow_logs": logs or workflow.logs,
+                "job_logs": build_workflow_logs(
+                    workflow, paginate=paginate, fetcher=fetcher
+                ),
                 "engine_specific": workflow.engine_specific,
             }
         return (
@@ -279,7 +290,8 @@ def get_workflow_status(workflow_id_or_name):  # noqa
     try:
         user_uuid = request.args["user"]
         workflow = _get_workflow_with_uuid_or_name(workflow_id_or_name, user_uuid, True)
-        workflow_logs = build_workflow_logs(workflow)
+        fetcher = OpenSearchLogFetcher() if REANA_OPENSEARCH_ENABLED else None
+        workflow_logs = build_workflow_logs(workflow, fetcher=fetcher)
 
         return (
             jsonify(
