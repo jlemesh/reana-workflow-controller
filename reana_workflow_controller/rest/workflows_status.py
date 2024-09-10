@@ -19,14 +19,11 @@ from reana_commons.k8s.api_client import current_k8s_corev1_api_client
 from reana_db.utils import _get_workflow_with_uuid_or_name
 from reana_db.database import Session
 
-from reana_workflow_controller.config import REANA_OPENSEARCH_ENABLED
-
 from reana_workflow_controller.errors import (
     REANAExternalCallError,
     REANAWorkflowControllerError,
     REANAWorkflowStatusError,
 )
-from reana_workflow_controller.opensearch import OpenSearchLogFetcher
 from reana_workflow_controller.rest.utils import (
     build_workflow_logs,
     delete_workflow,
@@ -146,7 +143,7 @@ def get_workflow_logs(workflow_id_or_name, paginate=None, **kwargs):  # noqa
 
         workflow = _get_workflow_with_uuid_or_name(workflow_id_or_name, user_uuid, True)
 
-        fetcher = OpenSearchLogFetcher() if REANA_OPENSEARCH_ENABLED else None
+        fetcher = None
 
         steps = None
         if request.is_json:
@@ -326,7 +323,7 @@ def get_workflow_status(workflow_id_or_name):  # noqa
     try:
         user_uuid = request.args["user"]
         workflow = _get_workflow_with_uuid_or_name(workflow_id_or_name, user_uuid, True)
-        fetcher = OpenSearchLogFetcher() if REANA_OPENSEARCH_ENABLED else None
+        fetcher = None
         workflow_logs = build_workflow_logs(workflow, fetcher=fetcher)
 
         return (
