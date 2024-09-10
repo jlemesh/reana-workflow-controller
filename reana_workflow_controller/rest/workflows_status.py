@@ -9,12 +9,15 @@
 """REANA Workflow Controller status REST API."""
 
 import json
-
+from opensearchpy import OpenSearch
+import logging
 from flask import Blueprint, jsonify, request
 
 from reana_commons.config import WORKFLOW_TIME_FORMAT
 from reana_commons.errors import REANASecretDoesNotExist
 from reana_db.utils import _get_workflow_with_uuid_or_name
+from reana_commons.opensearch import opensearch_client
+from reana_commons.redis import redis_cache
 
 from reana_workflow_controller.errors import (
     REANAExternalCallError,
@@ -150,8 +153,9 @@ def get_workflow_logs(workflow_id_or_name, paginate=None, **kwargs):  # noqa
                 "engine_specific": None,
             }
         else:
+            wf_logs = _get_workflow_logs(str(workflow.id_))
             workflow_logs = {
-                "workflow_logs": workflow.logs,
+                "workflow_logs": wf_logs,
                 "job_logs": build_workflow_logs(workflow, paginate=paginate),
                 "engine_specific": workflow.engine_specific,
             }
@@ -183,6 +187,34 @@ def get_workflow_logs(workflow_id_or_name, paginate=None, **kwargs):  # noqa
         return jsonify({"message": str(e)}), 400
     except Exception as e:
         return jsonify({"message": str(e)}), 500
+
+
+@redis_cache.cache(ttl=10)
+def _get_workflow_logs(workflow_id):
+    # search for logs of a specific job
+    query = {
+        "query": {
+            "match": {
+                "kubernetes.labels.reana-run-batch-workflow-uuid": workflow_id
+            }
+        },
+        "sort": [
+            {
+                "@timestamp": {
+                    "order": "desc"
+                }
+            }
+        ]
+    }
+
+    logging.info("Searching for logs of workflow {0}.".format(workflow_id))
+
+    response = opensearch_client.search(index='workflow_log', body=query, size=5000)
+    logging.info("Total Workflow Log Hits: {0}".format(response['hits']['total']['value']))
+    wf_logs = ""
+    for hit in response['hits']['hits']:
+        wf_logs += hit['_source']['log'] + "\n"
+    return wf_logs
 
 
 @blueprint.route("/workflows/<workflow_id_or_name>/status", methods=["GET"])
