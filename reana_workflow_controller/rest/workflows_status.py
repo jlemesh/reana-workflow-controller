@@ -33,6 +33,7 @@ from reana_workflow_controller.rest.utils import (
     stop_workflow,
     use_paginate_args,
 )
+from reana_workflow_controller.redis import redis_cache
 
 START = "start"
 STOP = "stop"
@@ -200,7 +201,7 @@ def get_workflow_logs(workflow_id_or_name, paginate=None, **kwargs):  # noqa
     except Exception as e:
         return jsonify({"message": str(e)}), 500
 
-
+@redis_cache.cache(ttl=10)
 def _get_workflow_log(pod_name):
     logs = ""
     try:

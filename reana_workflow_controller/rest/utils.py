@@ -73,6 +73,7 @@ from reana_workflow_controller.errors import (
     REANAWorkflowStatusError,
 )
 from reana_workflow_controller.workflow_run_manager import KubernetesWorkflowRunManager
+from reana_workflow_controller.redis import redis_cache
 
 
 def start_workflow(workflow, parameters):
@@ -203,7 +204,7 @@ def build_workflow_logs(workflow, steps=None, paginate=None, fetcher=None):
 
     return all_logs
 
-
+@redis_cache.cache(ttl=10)
 def _get_job_logs(pod_name):
     try:
         n = pod_name
