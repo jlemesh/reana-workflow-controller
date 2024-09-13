@@ -184,6 +184,9 @@ REANA_OPENSEARCH_USE_SSL = (
 REANA_OPENSEARCH_CA_CERTS = os.getenv("REANA_OPENSEARCH_CA_CERTS")
 """OpenSearch CA certificates."""
 
+REDIS_CACHE_PORT = 6379
+"""Redis cache port."""
+
 
 def _parse_interactive_sessions_environments(env_var):
     config = {}

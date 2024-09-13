@@ -53,6 +53,7 @@ install_requires = [
     "packaging>=18.0",
     "reana-commons[kubernetes] @ git+https://github.com/reanahub/reana-commons.git@0.95.0a4",
     "reana-db>=0.95.0a4,<0.96.0",
+    "python-redis-cache>=4.0.0,<4.1.0",
     "requests>=2.25.0",
     "sqlalchemy-utils>=0.31.0",
     "uwsgi-tools>=1.1.1",

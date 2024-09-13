@@ -108,19 +108,38 @@ class OpenSearchLogFetcher(object):
         :return: Job or workflow logs.
         """
         query = {
-            "query": {"match": {match: id}},
+            "query": {"match": {match: str(id)}},
             "sort": [{"@timestamp": {"order": self.order}}],
         }
 
-        try:
-            response = self.os_client.search(
-                index=index, body=query, size=self.max_rows, timeout=self.timeout
-            )
-        except Exception as e:
-            logging.error("Failed to fetch logs for {0}: {1}".format(id, e))
-            return None
+        client = self.os_client
+        concat_rows = self._concat_rows
+        max_rows = self.max_rows
+        timeout = self.timeout
 
-        return self._concat_rows(response["hits"]["hits"])
+        from reana_workflow_controller.redis import redis_cache
+
+        @redis_cache.cache(ttl=10)
+        def search(query: dict) -> str | None:
+            """Search for logs.
+            This is needed because the fetch_logs method cannot be cached directly by python-redis-cache: https://pypi.org/project/python-redis-cache/
+            Only caching of static methods is supported.
+            
+            :param query: Query to search for logs.
+            :return: Concatenated log messages.
+            """
+            try:
+                response = client.search(
+                    index=index, body=query, size=max_rows, timeout=timeout
+                )
+            except Exception as e:
+                logging.error("Failed to fetch logs for {0}: {1}".format(id, e))
+                return None
+
+            return concat_rows(response["hits"]["hits"])
+
+        return search(query)
+
 
     def fetch_job_logs(self, backend_job_id: str) -> str:
         """
