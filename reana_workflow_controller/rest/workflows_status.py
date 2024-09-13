@@ -17,6 +17,7 @@ from reana_commons.config import WORKFLOW_TIME_FORMAT, REANA_RUNTIME_KUBERNETES_
 from reana_commons.errors import REANASecretDoesNotExist
 from reana_commons.k8s.api_client import current_k8s_corev1_api_client
 from reana_db.utils import _get_workflow_with_uuid_or_name
+from reana_db.models import Job
 from reana_db.database import Session
 
 from reana_workflow_controller.errors import (
@@ -32,6 +33,7 @@ from reana_workflow_controller.rest.utils import (
     start_workflow,
     stop_workflow,
     use_paginate_args,
+    _get_job_logs,
 )
 from reana_workflow_controller.redis import redis_cache
 
@@ -228,6 +230,141 @@ def _set_workflow_pod_name(workflow):
             Session.add(workflow)
             Session.commit()
             break
+
+
+@blueprint.route("/workflows/<workflow_id>/job/<job_id>/log", methods=["GET"])
+def get_job_log(workflow_id, job_id, **kwargs):  # noqa
+    r"""Get workflow logs from a workflow engine.
+    ---
+    get:
+      summary: Returns logs of a specific workflow from a workflow engine.
+      description: >-
+        This resource is expecting a workflow UUID and a filename to return
+        its outputs.
+      operationId: get_job_log
+      produces:
+        - application/json
+      parameters:
+        - name: user
+          in: query
+          description: Required. UUID of workflow owner.
+          required: true
+          type: string
+        - name: workflow_id
+          in: path
+          description: Required. Workflow UUID or name.
+          required: true
+          type: string
+        - name: job_id
+          in: path
+          description: Required. Workflow UUID or name.
+          required: true
+          type: string
+      responses:
+        200:
+          description: >-
+            Request succeeded. Info about workflow, including the status is
+            returned.
+          schema:
+            type: object
+            properties:
+              job_id:
+                type: string
+              job_name:
+                type: string
+              logs:
+                type: string
+              user:
+                type: string
+          examples:
+            application/json:
+              {
+                "job_id": "256b25f4-4cfb-4684-b7a8-73872ef455a1",
+                "job_name": "mytest-1",
+                "logs": string,
+                "user": "00000000-0000-0000-0000-000000000000"
+              }
+        400:
+          description: >-
+            Request failed. The incoming data specification seems malformed.
+        404:
+          description: >-
+            Request failed. User does not exist.
+          examples:
+            application/json:
+              {
+                "message": "User 00000000-0000-0000-0000-000000000000 does not
+                            exist"
+              }
+        500:
+          description: >-
+            Request failed. Internal controller error.
+          examples:
+            application/json:
+              {
+                "message": "Internal workflow controller error."
+              }
+    """
+    try:
+        user_uuid = request.args["user"]
+        workflow = _get_workflow_with_uuid_or_name(workflow_id, user_uuid)
+        if workflow is None:
+            return (
+                jsonify(
+                    {
+                        "message": "Workflow {0} does not exist.".format(workflow_id)
+                    }
+                ),
+                404,
+            )
+        job = Session.query(Job).filter_by(id_=job_id).first()
+        if job is None:
+            return (
+                jsonify(
+                    {
+                        "message": "Job {0} does not exist.".format(job_id)
+                    }
+                ),
+                404,
+            )
+
+        if job.logs == "" or job.logs is None:
+            job_logs = _get_job_logs(job.pod_name)
+        else:
+            job_logs = job.logs
+
+        if job_logs == "" or job_logs is None:
+            job_logs = "The pod is dead"
+
+        return (
+            jsonify(
+                {
+                    "job_id": job.id_,
+                    "job_name": job.job_name,
+                    "logs": job_logs,
+                    "user": user_uuid,
+                    "status": job.status.name,
+                }
+            ),
+            200,
+        )
+    except ValueError:
+        return (
+            jsonify(
+                {
+                    "message": "REANA_WORKON is set to {0}, but "
+                    "that workflow does not exist. "
+                    "Please set your REANA_WORKON environment "
+                    "variable appropriately.".format(workflow_id)
+                }
+            ),
+            404,
+        )
+    except KeyError as e:
+        return jsonify({"message": str(e)}), 400
+    except Exception as e:
+        logging.error("Error while getting job logs: {0}".format(e))
+        return jsonify({"message": str(e)}), 500
 
 
 @blueprint.route("/workflows/<workflow_id_or_name>/status", methods=["GET"])
