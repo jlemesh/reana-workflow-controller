@@ -20,7 +20,6 @@ from reana_workflow_controller.config import (
     REANA_OPENSEARCH_USE_SSL,
     REANA_OPENSEARCH_USER,
 )
-from reana_workflow_controller.redis import redis_cache
 
 
 def build_opensearch_client(
@@ -117,6 +116,8 @@ class OpenSearchLogFetcher(object):
         concat_rows = self._concat_rows
         max_rows = self.max_rows
         timeout = self.timeout
+
+        from reana_workflow_controller.redis import redis_cache
 
         @redis_cache.cache(ttl=10)
         def search(query: dict) -> str | None:
