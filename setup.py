@@ -59,7 +59,7 @@ install_requires = [
     "uWSGI>=2.0.17",
     "uwsgitop>=0.10",
     "webargs>=6.1.0,<7.0.0",
-    "python-redis-cache==4.0.0",
+    "python-redis-cache>=4.0.0,<4.1.0",
 ]
 
 packages = find_packages()
