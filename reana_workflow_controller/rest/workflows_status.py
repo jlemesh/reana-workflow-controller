@@ -35,7 +35,6 @@ from reana_workflow_controller.rest.utils import (
     start_workflow,
     stop_workflow,
     use_paginate_args,
-    _get_job_logs,
 )
 
 START = "start"
@@ -286,7 +285,7 @@ def get_job_log(workflow_id, job_id, **kwargs):  # noqa
                 ),
                 404,
             )
-        job = Session.query(Job).filter_by(workflow_id=workflow_id, job_name=job_id).first()
+        job = Session.query(Job).filter_by(workflow_uuid=workflow.id_, job_name=str(job_id)).first()
         if job is None:
             return (
                 jsonify(
