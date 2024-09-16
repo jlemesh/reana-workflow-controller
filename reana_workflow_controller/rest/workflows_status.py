@@ -286,7 +286,7 @@ def get_job_log(workflow_id, job_id, **kwargs):  # noqa
                 ),
                 404,
             )
-        job = Session.query(Job).filter_by(id_=job_id).first()
+        job = Session.query(Job).filter_by(workflow_id=workflow_id, job_name=job_id).first()
         if job is None:
             return (
                 jsonify(
@@ -297,20 +297,15 @@ def get_job_log(workflow_id, job_id, **kwargs):  # noqa
                 404,
             )
 
-        if job.logs == "" or job.logs is None:
-            job_logs = _get_job_logs(job.pod_name)
-        else:
-            job_logs = job.logs
-
-        if job_logs == "" or job_logs is None:
-            job_logs = "The pod is dead"
+        fetcher = OpenSearchLogFetcher() if REANA_OPENSEARCH_ENABLED else None
+        job_logs = fetcher.fetch_job_logs(job.backend_job_id) if fetcher else None
 
         return (
             jsonify(
                 {
                     "job_id": job.id_,
                     "job_name": job.job_name,
-                    "logs": job_logs,
+                    "logs": job_logs or job.logs or "",
                     "user": user_uuid,
                     "status": job.status.name,
                 }
