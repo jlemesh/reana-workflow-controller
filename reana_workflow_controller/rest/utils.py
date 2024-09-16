@@ -180,8 +180,6 @@ def build_workflow_logs(workflow, steps=None, paginate=None, fetcher=None):
             job.finished_at.strftime(WORKFLOW_TIME_FORMAT) if job.finished_at else None
         )
 
-        logs = fetcher.fetch_job_logs(job.backend_job_id) if fetcher else None
-
         item = {
             "workflow_uuid": str(job.workflow_uuid) or "",
             "job_name": job.job_name or "",
@@ -190,7 +188,7 @@ def build_workflow_logs(workflow, steps=None, paginate=None, fetcher=None):
             "docker_img": job.docker_img or "",
             "cmd": job.prettified_cmd or "",
             "status": job.status.name or "",
-            "logs": logs or job.logs or "",
+            "logs": "",
             "started_at": started_at,
             "finished_at": finished_at,
         }
