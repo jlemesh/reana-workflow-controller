@@ -178,9 +178,6 @@ def build_workflow_logs(workflow, steps=None, paginate=None, fetcher=None):
         if job.pod_name is None or job.pod_name == "":
             _set_job_pod_name(job)
         # pod name can still be not set if the job is not yet scheduled
-        logs = job.logs
-        if logs is None or logs == "":
-            logs = _get_job_logs(job.pod_name)
         started_at = (
             job.started_at.strftime(WORKFLOW_TIME_FORMAT) if job.started_at else None
         )
@@ -196,7 +193,7 @@ def build_workflow_logs(workflow, steps=None, paginate=None, fetcher=None):
             "docker_img": job.docker_img or "",
             "cmd": job.prettified_cmd or "",
             "status": job.status.name or "",
-            "logs": logs or "",
+            "logs": "",
             "started_at": started_at,
             "finished_at": finished_at,
         }
