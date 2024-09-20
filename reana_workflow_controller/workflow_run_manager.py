@@ -558,7 +558,7 @@ class KubernetesWorkflowRunManager(WorkflowRunManager):
         )
         workflow_engine_env_vars = env_vars or self._workflow_engine_env_vars()
         owner_id = str(self.workflow.owner_id)
-        command = format_cmd(command + " >> /opt/app/log.log 2>&1")
+        command = format_cmd(command + " >> /opt/app/workflow_engine_log.log 2>&1")
         workspace_mount, workspace_volume = get_workspace_volume(
             self.workflow.workspace_path
         )
@@ -607,6 +607,11 @@ class KubernetesWorkflowRunManager(WorkflowRunManager):
                     "name": "fluentbit-config-workflow",
                     "mountPath": "/fluent-bit/etc/fluent-bit.conf",
                     "subPath": "fluent-bit.conf",
+                },
+                {
+                    "name": "fluentbit-config-workflow",
+                    "mountPath": "/fluent-bit/etc/conf/custom_parsers.conf",
+                    "subPath": "custom_parsers.conf",
                 },
                 {
                     "name": "applog",
@@ -677,7 +682,12 @@ class KubernetesWorkflowRunManager(WorkflowRunManager):
             image=current_app.config["JOB_CONTROLLER_IMAGE"],
             image_pull_policy="IfNotPresent",
             env=[],
-            volume_mounts=[],
+            volume_mounts=[
+                {
+                    "name": "applog",
+                    "mountPath": "/opt/app",
+                }
+            ],
             command=["/bin/bash", "-c"],
             args=self._create_job_controller_startup_cmd(user),
             ports=[],
@@ -761,7 +771,14 @@ class KubernetesWorkflowRunManager(WorkflowRunManager):
             )
 
         secrets_volume_mount = user_secrets.get_secrets_volume_mount_as_k8s_spec()
-        job_controller_container.volume_mounts = [workspace_mount, secrets_volume_mount]
+        job_controller_container.volume_mounts = [
+            workspace_mount, 
+            secrets_volume_mount,
+            {
+                "name": "applog",
+                "mountPath": "/opt/app",
+            }
+        ]
 
         job_controller_container.ports = [
             {"containerPort": current_app.config["JOB_CONTROLLER_CONTAINER_PORT"]}
@@ -844,7 +861,7 @@ class KubernetesWorkflowRunManager(WorkflowRunManager):
                 self.workflow.workspace_path,
             )
             run_app_cmd = 'exec su {} /bin/bash -c "{}"'.format(user, base_cmd)
-            full_cmd = add_group_cmd + add_user_cmd + chown_workspace_cmd + run_app_cmd
+            full_cmd = add_group_cmd + add_user_cmd + chown_workspace_cmd + run_app_cmd + " &>> /opt/app/job_controller_log.log"
             return [full_cmd]
         else:
             return base_cmd.split()
